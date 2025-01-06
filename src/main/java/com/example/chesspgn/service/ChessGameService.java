@@ -1,92 +1,74 @@
 package com.example.chesspgn.service;
 
-import com.example.chesspgn.exception.GameNotFoundException;
-import com.example.chesspgn.model.ChessGameEntity;
-import com.example.chesspgn.repository.ChessGameRepository;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.example.chesspgn.wrapper.ChessGame;
+import com.example.chesspgn.wrapper.ChessGameWrapper;
 import org.springframework.stereotype.Service;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
 public class ChessGameService {
 
-    @Autowired
-    private ChessGameRepository chessGameRepository;
+    public ChessGameWrapper parseGames(String fileContent) {
+        List<ChessGame> games = new ArrayList<>();
+        ChessGame currentGame = null;
 
-    /**
-     * Guarda una partida de ajedrez en la base de datos.
-     *
-     * @param game La entidad que representa la partida.
-     * @return La entidad guardada.
-     */
-    public ChessGameEntity saveGame(ChessGameEntity game) {
-        return chessGameRepository.save(game);
-    }
+        String[] lines = fileContent.split("\\r?\\n"); // Manejo de \r y \n
 
-    /**
-     * Recupera una partida de ajedrez por su ID.
-     *
-     * @param id El ID de la partida.
-     * @return La entidad correspondiente a la partida.
-     * @throws RuntimeException Si la partida no se encuentra.
-     */
-    public ChessGameEntity getGameById(Long id) {
-        return chessGameRepository.findById(id)
-                .orElseThrow(() -> new GameNotFoundException("Game with ID " + id + " not found"));
-    }
-
-    /**
-     * Genera el contenido PGN para una partida de ajedrez.
-     *
-     * @param chessGame La entidad que representa la partida.
-     * @return El contenido del archivo PGN.
-     */
-    public String generatePGN(ChessGameEntity chessGame) {
-        StringBuilder pgnBuilder = new StringBuilder();
-
-        // Encabezados del PGN
-        pgnBuilder.append("[Event \"").append(chessGame.getEvent()).append("\"]\n");
-        pgnBuilder.append("[Site \"").append(chessGame.getSite()).append("\"]\n");
-        pgnBuilder.append("[Date \"").append(chessGame.getDate()).append("\"]\n");
-        pgnBuilder.append("[Round \"").append(chessGame.getRound()).append("\"]\n");
-        pgnBuilder.append("[White \"").append(chessGame.getWhitePlayer()).append("\"]\n");
-        pgnBuilder.append("[Black \"").append(chessGame.getBlackPlayer()).append("\"]\n");
-        pgnBuilder.append("[Result \"").append(chessGame.getResult()).append("\"]\n\n");
-
-        // Movimientos
-        int moveNumber = 1;
-        for (int i = 0; i < chessGame.getMoves().size(); i++) {
-            if (i % 2 == 0) {
-                pgnBuilder.append(moveNumber).append(". ");
-                moveNumber++;
+        for (String line : lines) {
+            if (line.isBlank()) {
+                // Línea en blanco indica el final de un juego
+                if (currentGame != null && currentGame.getMoves() != null) {
+                    games.add(currentGame); // Añadir el juego actual a la lista
+                    currentGame = null; // Reiniciar para el próximo juego
+                }
+            } else if (line.startsWith("[Event ")) {
+                // Inicia un nuevo juego
+                if (currentGame != null) {
+                    games.add(currentGame); // Guardar el juego anterior si no se ha añadido
+                }
+                currentGame = new ChessGame(); // Crear un nuevo juego
+                currentGame.setEventName(extractValue(line));
+            } else if (currentGame != null) {
+                // Procesar otros atributos del juego
+                if (line.startsWith("[Site ")) {
+                    currentGame.setSite(extractValue(line));
+                } else if (line.startsWith("[Date ")) {
+                    currentGame.setDate(extractValue(line));
+                } else if (line.startsWith("[Round ")) {
+                    currentGame.setRound(extractValue(line));
+                } else if (line.startsWith("[White ")) {
+                    currentGame.setWhitePlayer(extractValue(line));
+                } else if (line.startsWith("[Black ")) {
+                    currentGame.setBlackPlayer(extractValue(line));
+                } else if (line.startsWith("[Result ")) {
+                    currentGame.setResult(extractValue(line));
+                } else if (line.startsWith("[WhiteElo ")) {
+                    currentGame.setWhiteElo(extractValue(line));
+                } else if (line.startsWith("[BlackElo ")) {
+                    currentGame.setBlackElo(extractValue(line));
+                } else if (line.startsWith("[ECO ")) {
+                    currentGame.setEco(extractValue(line));
+                } else if (line.matches("^\\d+\\.\\s?.*")) {
+                    // Si la línea contiene jugadas, las agregamos al campo "moves"
+                    String moves = currentGame.getMoves() == null ? "" : currentGame.getMoves() + " ";
+                    currentGame.setMoves(moves + line.trim());
+                }
             }
-            pgnBuilder.append(chessGame.getMoves().get(i)).append(" ");
         }
 
-        return pgnBuilder.toString().trim();
+        // Añadir el último juego si no está vacío
+        if (currentGame != null) {
+            games.add(currentGame);
+        }
+
+        return new ChessGameWrapper(games);
     }
 
-    /**
-     * Guarda el contenido PGN en un archivo.
-     *
-     * @param pgnContent El contenido PGN a guardar.
-     * @param fileName El nombre del archivo.
-     * @return La ruta del archivo guardado.
-     * @throws IOException Si ocurre un error al escribir el archivo.
-     */
-    public Path savePGNToFile(String pgnContent, String fileName) throws IOException {
-        Path path = Paths.get(fileName);
-        Files.write(path, pgnContent.getBytes());
-        return path;
-    }
-
-    public List<String> getMovesByGameId(Long gameId) {
-        ChessGameEntity game = getGameById(gameId);
-        return game.getMoves();
+    private String extractValue(String line) {
+        return line.substring(line.indexOf("\"") + 1, line.lastIndexOf("\""));
     }
 }
+
+
